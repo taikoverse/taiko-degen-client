@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	// "encoding/json"
+	// "fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/beacon/engine"
@@ -25,6 +27,15 @@ func (c *EngineClient) ForkchoiceUpdate(
 	defer cancel()
 
 	var result *engine.ForkChoiceResponse
+
+	// ctxs, _ := json.MarshalIndent(ctx, "", "\t")
+	// fcs, _ := json.MarshalIndent(&fc, "", "\t")
+	// attributess, _ := json.MarshalIndent(&attributes, "", "\t")
+
+	// fmt.Println("ctxs", string(ctxs))
+	// fmt.Println("fcs", string(fcs))
+	// fmt.Println("attributess", string(attributess))
+
 	if err := c.Client.CallContext(timeoutCtx, &result, "engine_forkchoiceUpdatedV2", fc, attributes); err != nil {
 		return nil, err
 	}

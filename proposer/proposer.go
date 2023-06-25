@@ -22,6 +22,10 @@ import (
 	"github.com/taikoxyz/taiko-client/bindings/encoding"
 	"github.com/taikoxyz/taiko-client/metrics"
 	"github.com/taikoxyz/taiko-client/pkg/rpc"
+	"github.com/taikoxyz/taiko-client/proposer/chain_syncer/calldata"
+	"github.com/taikoxyz/taiko-client/proposer/chain_syncer/beaconsync"
+	
+	"github.com/taikoxyz/taiko-client/proposer/state"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -60,6 +64,11 @@ type Proposer struct {
 
 	ctx context.Context
 	wg  sync.WaitGroup
+
+	// Syncers
+	state          *state.State
+	// l2ChainSyncer  *chainSyncer.L2ChainSyncer
+	calldataSyncer *calldata.Syncer
 }
 
 // New initializes the given proposer instance based on the command line flags.
@@ -88,11 +97,13 @@ func InitFromConfig(ctx context.Context, p *Proposer, cfg *Config) (err error) {
 
 	// RPC clients
 	if p.rpc, err = rpc.NewClient(p.ctx, &rpc.ClientConfig{
-		L1Endpoint:     cfg.L1Endpoint,
-		L2Endpoint:     cfg.L2Endpoint,
-		TaikoL1Address: cfg.TaikoL1Address,
-		TaikoL2Address: cfg.TaikoL2Address,
-		RetryInterval:  cfg.BackOffRetryInterval,
+		L1Endpoint:       cfg.L1Endpoint,
+		L2Endpoint:       cfg.L2Endpoint,
+		TaikoL1Address:   cfg.TaikoL1Address,
+		TaikoL2Address:   cfg.TaikoL2Address,
+		L2EngineEndpoint: cfg.L2EngineEndpoint,
+		JwtSecret:        cfg.JwtSecret,
+		RetryInterval:    cfg.BackOffRetryInterval,
 	}); err != nil {
 		return fmt.Errorf("initialize rpc clients error: %w", err)
 	}
@@ -113,6 +124,23 @@ func InitFromConfig(ctx context.Context, p *Proposer, cfg *Config) (err error) {
 			)
 		}
 		p.minBlockGasLimit = &cfg.MinBlockGasLimit
+	}
+
+	// if p.state, err = state.New(p.ctx, p.rpc); err != nil {
+	// 	return err
+	// }
+
+	signalServiceAddress, err := p.rpc.TaikoL1.Resolve0(nil, rpc.StringToBytes32("signal_service"), false)
+	if err != nil {
+		return err
+	}
+
+	tracker := beaconsync.NewSyncProgressTracker(p.rpc.L2, cfg.P2PSyncTimeout)
+	go tracker.Track(ctx)
+
+	p.calldataSyncer, err = calldata.NewSyncer(ctx, p.rpc, tracker, signalServiceAddress)
+	if err != nil {
+		return err
 	}
 
 	log.Info("Protocol configs", "configs", p.protocolConfigs)
@@ -142,6 +170,7 @@ func (p *Proposer) eventLoop() {
 		case <-p.ctx.Done():
 			return
 		case <-p.proposingTimer.C:
+			log.Info("1")
 			metrics.ProposerProposeEpochCounter.Inc(1)
 
 			if err := p.ProposeOp(p.ctx); err != nil {
@@ -150,6 +179,7 @@ func (p *Proposer) eventLoop() {
 					continue
 				}
 
+				// code unreachable here if proposeEmptyBlocksInterval is not set
 				if p.proposeEmptyBlocksInterval != nil {
 					if time.Now().Before(lastNonEmptyBlockProposedAt.Add(*p.proposeEmptyBlocksInterval)) {
 						continue
@@ -189,10 +219,10 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 		return fmt.Errorf("failed to check Taiko token balance: %w", err)
 	}
 
-	// Wait until L2 execution engine is synced at first.
-	if err := p.rpc.WaitTillL2ExecutionEngineSynced(ctx); err != nil {
-		return fmt.Errorf("failed to wait until L2 execution engine synced: %w", err)
-	}
+	// // Wait until L2 execution engine is synced at first.
+	// if err := p.rpc.WaitTillL2ExecutionEngineSynced(ctx); err != nil {
+	// 	return fmt.Errorf("failed to wait until L2 execution engine synced: %w", err)
+	// }
 
 	log.Info("Start fetching L2 execution engine's transaction pool content")
 
@@ -229,6 +259,8 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 	log.Info("Proposer account information", "chainHead", head, "nonce", nonce)
 
 	g := new(errgroup.Group)
+	// -----------------
+	// block insert code can be put here
 	for i, txs := range txLists {
 		func(i int, txs types.Transactions) {
 			g.Go(func() error {
@@ -242,16 +274,20 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 				}
 
 				txNonce := nonce + uint64(i)
-				if err := p.ProposeTxList(ctx, &encoding.TaikoL1BlockMetadataInput{
+				taikoL1BlockMetadataInput := encoding.TaikoL1BlockMetadataInput{
 					Beneficiary:     p.l2SuggestedFeeRecipient,
 					GasLimit:        uint32(sumTxsGasLimit(txs)),
 					TxListHash:      crypto.Keccak256Hash(txListBytes),
 					TxListByteStart: common.Big0,
 					TxListByteEnd:   new(big.Int).SetUint64(uint64(len(txListBytes))),
 					CacheTxListInfo: 0,
-				}, txListBytes, uint(txs.Len()), &txNonce); err != nil {
+				}
+				if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), &txNonce); err != nil {
 					return fmt.Errorf("failed to propose transactions: %w", err)
 				}
+
+				// block insert code can be put here
+				p.calldataSyncer.OnBlockProposed(ctx, &taikoL1BlockMetadataInput, txListBytes)
 
 				return nil
 			})

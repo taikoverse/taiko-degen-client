@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/taikoxyz/taiko-client/cmd/flags"
 	"github.com/urfave/cli/v2"
+	"github.com/taikoxyz/taiko-client/pkg/jwt"
 )
 
 // Config contains all configurations to initialize a Taiko proposer.
@@ -28,11 +29,21 @@ type Config struct {
 	MaxProposedTxListsPerEpoch uint64
 	ProposeBlockTxGasLimit     *uint64
 	BackOffRetryInterval       time.Duration
+	// Syncer
+	P2PSyncTimeout        time.Duration
+	L2EngineEndpoint      string
+	JwtSecret             string
+
 }
 
 // NewConfigFromCliContext initializes a Config instance from
 // command line flags.
 func NewConfigFromCliContext(c *cli.Context) (*Config, error) {
+	jwtSecret, err := jwt.ParseSecretFromFile(c.String(flags.JWTSecret.Name))
+	if err != nil {
+		return nil, fmt.Errorf("invalid JWT secret file: %w", err)
+	}
+
 	l1ProposerPrivKey, err := crypto.ToECDSA(
 		common.Hex2Bytes(c.String(flags.L1ProposerPrivKey.Name)),
 	)
@@ -44,6 +55,7 @@ func NewConfigFromCliContext(c *cli.Context) (*Config, error) {
 	var proposingInterval *time.Duration
 	if c.IsSet(flags.ProposeInterval.Name) {
 		interval, err := time.ParseDuration(c.String(flags.ProposeInterval.Name))
+		fmt.Println("proposingInterval", interval)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proposing interval: %w", err)
 		}
@@ -52,6 +64,7 @@ func NewConfigFromCliContext(c *cli.Context) (*Config, error) {
 	var proposeEmptyBlocksInterval *time.Duration
 	if c.IsSet(flags.ProposeEmptyBlocksInterval.Name) {
 		interval, err := time.ParseDuration(c.String(flags.ProposeEmptyBlocksInterval.Name))
+		fmt.Println("proposeEmptyBlocksInterval", interval)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proposing empty blocks interval: %w", err)
 		}
@@ -95,5 +108,8 @@ func NewConfigFromCliContext(c *cli.Context) (*Config, error) {
 		MaxProposedTxListsPerEpoch: c.Uint64(flags.MaxProposedTxListsPerEpoch.Name),
 		ProposeBlockTxGasLimit:     proposeBlockTxGasLimit,
 		BackOffRetryInterval:       time.Duration(c.Uint64(flags.BackOffRetryInterval.Name)) * time.Second,
+		P2PSyncTimeout:             time.Duration(int64(time.Second) * int64(c.Uint(flags.P2PSyncTimeout.Name))),
+		L2EngineEndpoint:      c.String(flags.L2AuthEndpoint.Name),
+		JwtSecret:             string(jwtSecret),
 	}, nil
 }

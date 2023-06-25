@@ -33,6 +33,21 @@ gen_bindings:
 	TAIKO_GETH_DIR=${TAIKO_GETH_DIR} \
 		./scripts/gen_bindings.sh
 
+run_driver:
+	@L1_ENDPOINT_WS=${L1_ENDPOINT_WS} \
+	TAIKO_L1_ADDRESS=${TAIKO_L1_ADDRESS} \
+	TAIKO_L2_ADDRESS=${TAIKO_L2_ADDRESS} \
+		./scripts/start-driver.sh
+
+run_proposer:
+	@ENABLE_PROPOSER=${ENABLE_PROPOSER} \
+	L1_ENDPOINT_WS=${L1_ENDPOINT_WS} \
+	TAIKO_L1_ADDRESS=${TAIKO_L1_ADDRESS} \
+	TAIKO_L2_ADDRESS=${TAIKO_L2_ADDRESS} \
+	L1_PROPOSER_PRIVATE_KEY=${L1_PROPOSER_PRIVATE_KEY} \
+	L2_SUGGESTED_FEE_RECIPIENT=${L2_SUGGESTED_FEE_RECIPIENT} \
+		./scripts/start-proposer.sh
+
 .PHONY: build \
 				clean \
 				lint \

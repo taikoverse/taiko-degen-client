@@ -73,4 +73,7 @@ var ProposerFlags = MergeFlags(CommonFlags, []cli.Flag{
 	MinBlockGasLimit,
 	MaxProposedTxListsPerEpoch,
 	ProposeBlockTxGasLimit,
+	P2PSyncTimeout,
+	L2AuthEndpoint,
+	JWTSecret,
 })

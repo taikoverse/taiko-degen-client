@@ -82,3 +82,6 @@ require (
 )
 
 replace github.com/ethereum/go-ethereum v1.11.5 => github.com/taikoxyz/taiko-geth v0.0.0-20230528194240-f4b7892dc112
+
+// replace github.com/ethereum/go-ethereum v1.11.5 => github.com/vhjiang/taiko-geth v0.0.0-20230625042359-64172c49cb7f
+// replace github.com/ethereum/go-ethereum v1.11.5 => github.com/vhjiang/taiko-geth v0.0.0-20230625050604-4761505ecf5c

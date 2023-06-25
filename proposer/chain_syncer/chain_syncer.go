@@ -8,9 +8,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/taikoxyz/taiko-client/driver/chain_syncer/beaconsync"
-	"github.com/taikoxyz/taiko-client/driver/chain_syncer/calldata"
-	"github.com/taikoxyz/taiko-client/driver/state"
+	"github.com/taikoxyz/taiko-client/proposer/chain_syncer/beaconsync"
+	"github.com/taikoxyz/taiko-client/proposer/chain_syncer/calldata"
+	"github.com/taikoxyz/taiko-client/proposer/state"
 	"github.com/taikoxyz/taiko-client/pkg/rpc"
 )
 
@@ -46,7 +46,7 @@ func New(
 	go tracker.Track(ctx)
 
 	beaconSyncer := beaconsync.NewSyncer(ctx, rpc, state, tracker)
-	calldataSyncer, err := calldata.NewSyncer(ctx, rpc, state, tracker, signalServiceAddress)
+	calldataSyncer, err := calldata.NewSyncer(ctx, rpc, tracker, signalServiceAddress)
 	if err != nil {
 		return nil, err
 	}
