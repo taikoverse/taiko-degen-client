@@ -25,7 +25,7 @@ import (
 	"github.com/taikoxyz/taiko-client/proposer/chain_syncer/calldata"
 	"github.com/taikoxyz/taiko-client/proposer/chain_syncer/beaconsync"
 	
-	"github.com/taikoxyz/taiko-client/proposer/state"
+	// "github.com/taikoxyz/taiko-client/proposer/state"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -66,7 +66,7 @@ type Proposer struct {
 	wg  sync.WaitGroup
 
 	// Syncers
-	state          *state.State
+	// state          *state.State
 	// l2ChainSyncer  *chainSyncer.L2ChainSyncer
 	calldataSyncer *calldata.Syncer
 }
@@ -170,7 +170,6 @@ func (p *Proposer) eventLoop() {
 		case <-p.ctx.Done():
 			return
 		case <-p.proposingTimer.C:
-			log.Info("1")
 			metrics.ProposerProposeEpochCounter.Inc(1)
 
 			if err := p.ProposeOp(p.ctx); err != nil {
@@ -213,11 +212,11 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 		return p.CustomProposeOpHook()
 	}
 
-	log.Info("Comparing proposer TKO balance to block fee", "proposer", p.l1ProposerAddress.Hex())
+	// log.Info("Comparing proposer TKO balance to block fee", "proposer", p.l1ProposerAddress.Hex())
 
-	if err := p.checkTaikoTokenBalance(); err != nil {
-		return fmt.Errorf("failed to check Taiko token balance: %w", err)
-	}
+	// if err := p.checkTaikoTokenBalance(); err != nil {
+	// 	return fmt.Errorf("failed to check Taiko token balance: %w", err)
+	// }
 
 	// // Wait until L2 execution engine is synced at first.
 	// if err := p.rpc.WaitTillL2ExecutionEngineSynced(ctx); err != nil {
@@ -263,6 +262,7 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 	// block insert code can be put here
 	for i, txs := range txLists {
 		func(i int, txs types.Transactions) {
+
 			g.Go(func() error {
 				if i >= int(p.maxProposedTxListsPerEpoch) {
 					return nil
@@ -282,12 +282,21 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 					TxListByteEnd:   new(big.Int).SetUint64(uint64(len(txListBytes))),
 					CacheTxListInfo: 0,
 				}
-				if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), &txNonce); err != nil {
+
+				start1 := time.Now()
+				// block insert code can be put here
+				currentId, err := p.calldataSyncer.OnBlockProposed(ctx, &taikoL1BlockMetadataInput, txListBytes)
+				if err != nil {
+					return fmt.Errorf("failed to insert the block: %w", err)
+				}
+				fmt.Printf("%s took %v\n", "1", time.Since(start1))
+
+				start2 := time.Now()
+				if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), &txNonce, currentId); err != nil {
 					return fmt.Errorf("failed to propose transactions: %w", err)
 				}
+				fmt.Printf("%s took %v\n", "2", time.Since(start2))
 
-				// block insert code can be put here
-				p.calldataSyncer.OnBlockProposed(ctx, &taikoL1BlockMetadataInput, txListBytes)
 
 				return nil
 			})
@@ -307,6 +316,63 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 	return nil
 }
 
+// ProposeEmptyBlockOp performs a proposing one empty block operation.
+func (p *Proposer) ProposeEmptyBlockOp(ctx context.Context) error {
+
+	head, err := p.rpc.L1.BlockNumber(ctx)
+	if err != nil {
+		return err
+	}
+
+	nonce, err := p.rpc.L1.NonceAt(
+		ctx,
+		crypto.PubkeyToAddress(p.l1ProposerPrivKey.PublicKey),
+		new(big.Int).SetUint64(head),
+	)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Proposer account information", "chainHead", head, "nonce", nonce)
+
+	txs := types.Transactions{}
+	txListBytes := []byte{}
+	txNonce := nonce
+	taikoL1BlockMetadataInput := encoding.TaikoL1BlockMetadataInput{
+		Beneficiary:     p.l2SuggestedFeeRecipient,
+		GasLimit:        uint32(sumTxsGasLimit(txs)),
+		TxListHash:      crypto.Keccak256Hash(txListBytes),
+		TxListByteStart: common.Big0,
+		TxListByteEnd:   common.Big0,
+		CacheTxListInfo: 0,
+	}
+
+	start1 := time.Now()
+	// block insert code can be put here
+	currentId, err := p.calldataSyncer.OnBlockProposed(ctx, &taikoL1BlockMetadataInput, txListBytes)
+	if err != nil {
+		return fmt.Errorf("failed to insert the block: %w", err)
+	}
+	fmt.Printf("%s took %v\n", "1", time.Since(start1))
+
+	start2 := time.Now()
+	if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), &txNonce, currentId); err != nil {
+		return fmt.Errorf("failed to propose transactions: %w", err)
+	}
+	fmt.Printf("%s took %v\n", "2", time.Since(start2))
+
+	return nil
+
+	// return p.ProposeTxList(ctx, &encoding.TaikoL1BlockMetadataInput{
+	// 	TxListHash:      crypto.Keccak256Hash([]byte{}),
+	// 	Beneficiary:     p.L2SuggestedFeeRecipient(),
+	// 	GasLimit:        21000,
+	// 	TxListByteStart: common.Big0,
+	// 	TxListByteEnd:   common.Big0,
+	// 	CacheTxListInfo: 0,
+	// }, []byte{}, 0, nil, 0)
+}
+
 // ProposeTxList proposes the given transactions list to TaikoL1 smart contract.
 func (p *Proposer) ProposeTxList(
 	ctx context.Context,
@@ -314,7 +380,13 @@ func (p *Proposer) ProposeTxList(
 	txListBytes []byte,
 	txNum uint,
 	nonce *uint64,
+	currentId uint64,
 ) error {
+	// propose every 100 blocks
+	if currentId % 100 != 0 {
+		return nil
+	}
+
 	if p.minBlockGasLimit != nil && meta.GasLimit < uint32(*p.minBlockGasLimit) {
 		meta.GasLimit = uint32(*p.minBlockGasLimit)
 	}
@@ -336,17 +408,34 @@ func (p *Proposer) ProposeTxList(
 		opts.GasLimit = *p.proposeBlockTxGasLimit
 	}
 
-	proposeTx, err := p.rpc.TaikoL1.ProposeBlock(opts, inputs, txListBytes)
+	_, err = p.rpc.TaikoL1.ProposeBlock(opts, inputs, txListBytes)
 	if err != nil {
 		return encoding.TryParsingCustomError(err)
 	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, waitReceiptTimeout)
-	defer cancel()
+	// TODO:
+	// Commented the following code temporarily.
+	// In the near future, submit this tx in another goroutine.
+	// If submission failed, just backoff with reorg.
+	// Thus high speed is achieved.
+	// _, cancel := context.WithTimeout(ctx, waitReceiptTimeout)
+	// defer cancel()
 
-	if _, err := rpc.WaitReceipt(ctxWithTimeout, p.rpc.L1, proposeTx); err != nil {
-		return err
-	}
+	// if _, err := rpc.WaitReceipt(ctxWithTimeout, p.rpc.L1, proposeTx); err != nil {
+	// 	return err
+	// }
+
+	// proposeTx, err := p.rpc.TaikoL1.ProposeBlock(opts, inputs, txListBytes)
+	// if err != nil {
+	// 	return encoding.TryParsingCustomError(err)
+	// }
+
+	// ctxWithTimeout, cancel := context.WithTimeout(ctx, waitReceiptTimeout)
+	// defer cancel()
+
+	// if _, err := rpc.WaitReceipt(ctxWithTimeout, p.rpc.L1, proposeTx); err != nil {
+	// 	return err
+	// }
 
 	log.Info("📝 Propose transactions succeeded", "txs", txNum)
 
@@ -356,17 +445,6 @@ func (p *Proposer) ProposeTxList(
 	return nil
 }
 
-// ProposeEmptyBlockOp performs a proposing one empty block operation.
-func (p *Proposer) ProposeEmptyBlockOp(ctx context.Context) error {
-	return p.ProposeTxList(ctx, &encoding.TaikoL1BlockMetadataInput{
-		TxListHash:      crypto.Keccak256Hash([]byte{}),
-		Beneficiary:     p.L2SuggestedFeeRecipient(),
-		GasLimit:        21000,
-		TxListByteStart: common.Big0,
-		TxListByteEnd:   common.Big0,
-		CacheTxListInfo: 0,
-	}, []byte{}, 0, nil)
-}
 
 // updateProposingTicker updates the internal proposing timer.
 func (p *Proposer) updateProposingTicker() {

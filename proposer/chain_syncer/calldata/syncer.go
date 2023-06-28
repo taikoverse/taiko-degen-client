@@ -113,7 +113,7 @@ func (s *Syncer) OnBlockProposed(
 	// endIter eventIterator.EndBlockProposedEventIterFunc,
 	meta *encoding.TaikoL1BlockMetadataInput,
 	txListBytes []byte,
-) error {
+) (uint64, error) {
 	// if event.Id.Cmp(common.Big0) == 0 {
 	// 	return nil
 	// }
@@ -176,12 +176,12 @@ func (s *Syncer) OnBlockProposed(
 	// } else {
 	parentId, err := s.rpc.L2.BlockNumber(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to fetch L2 parent block id: %w", err)
+		return 0, fmt.Errorf("failed to fetch L2 parent block id: %w", err)
 	}
 
 	parent, err = s.rpc.L2ParentByBlockId(ctx, new(big.Int).SetUint64(parentId + 1))
 	if err != nil {
-		return fmt.Errorf("failed to fetch L2 parent block: %w", err)
+		return 0, fmt.Errorf("failed to fetch L2 parent block: %w", err)
 	}
 
 	log.Info("Parent block", "height", parent.Number, "hash", parent.Hash())
@@ -240,7 +240,7 @@ func (s *Syncer) OnBlockProposed(
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to insert new head to L2 execution engine: %w", err)
+		return 0, fmt.Errorf("failed to insert new head to L2 execution engine: %w", err)
 	}
 
 	log.Debug("Payload data", "hash", payloadData.BlockHash, "txs", len(payloadData.Transactions))
@@ -264,7 +264,7 @@ func (s *Syncer) OnBlockProposed(
 		s.progressTracker.ClearMeta()
 	}
 
-	return nil
+	return currentId, nil
 }
 
 // insertNewHead tries to insert a new head block to the L2 execution engine's local
