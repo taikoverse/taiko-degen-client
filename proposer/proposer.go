@@ -242,20 +242,20 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 		return errNoNewTxs
 	}
 
-	head, err := p.rpc.L1.BlockNumber(ctx)
-	if err != nil {
-		return err
-	}
-	nonce, err := p.rpc.L1.NonceAt(
-		ctx,
-		crypto.PubkeyToAddress(p.l1ProposerPrivKey.PublicKey),
-		new(big.Int).SetUint64(head),
-	)
-	if err != nil {
-		return err
-	}
+	// head, err := p.rpc.L1.BlockNumber(ctx)
+	// if err != nil {
+	// 	return err
+	// }
+	// nonce, err := p.rpc.L1.NonceAt(
+	// 	ctx,
+	// 	crypto.PubkeyToAddress(p.l1ProposerPrivKey.PublicKey),
+	// 	new(big.Int).SetUint64(head),
+	// )
+	// if err != nil {
+	// 	return err
+	// }
 
-	log.Info("Proposer account information", "chainHead", head, "nonce", nonce)
+	// log.Info("Proposer account information", "chainHead", head, "nonce", nonce)
 
 	g := new(errgroup.Group)
 	// -----------------
@@ -273,7 +273,7 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 					return fmt.Errorf("failed to encode transactions: %w", err)
 				}
 
-				txNonce := nonce + uint64(i)
+				// txNonce := nonce + uint64(i)
 				taikoL1BlockMetadataInput := encoding.TaikoL1BlockMetadataInput{
 					Beneficiary:     p.l2SuggestedFeeRecipient,
 					GasLimit:        uint32(sumTxsGasLimit(txs)),
@@ -292,7 +292,7 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 				fmt.Printf("%s took %v\n", "1", time.Since(start1))
 
 				start2 := time.Now()
-				if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), &txNonce, currentId); err != nil {
+				if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), currentId); err != nil {
 					return fmt.Errorf("failed to propose transactions: %w", err)
 				}
 				fmt.Printf("%s took %v\n", "2", time.Since(start2))
@@ -319,25 +319,11 @@ func (p *Proposer) ProposeOp(ctx context.Context) error {
 // ProposeEmptyBlockOp performs a proposing one empty block operation.
 func (p *Proposer) ProposeEmptyBlockOp(ctx context.Context) error {
 
-	head, err := p.rpc.L1.BlockNumber(ctx)
-	if err != nil {
-		return err
-	}
-
-	nonce, err := p.rpc.L1.NonceAt(
-		ctx,
-		crypto.PubkeyToAddress(p.l1ProposerPrivKey.PublicKey),
-		new(big.Int).SetUint64(head),
-	)
-	if err != nil {
-		return err
-	}
-
-	log.Info("Proposer account information", "chainHead", head, "nonce", nonce)
+	
 
 	txs := types.Transactions{}
 	txListBytes := []byte{}
-	txNonce := nonce
+	
 	taikoL1BlockMetadataInput := encoding.TaikoL1BlockMetadataInput{
 		Beneficiary:     p.l2SuggestedFeeRecipient,
 		GasLimit:        uint32(sumTxsGasLimit(txs)),
@@ -356,7 +342,7 @@ func (p *Proposer) ProposeEmptyBlockOp(ctx context.Context) error {
 	fmt.Printf("%s took %v\n", "1", time.Since(start1))
 
 	start2 := time.Now()
-	if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), &txNonce, currentId); err != nil {
+	if err := p.ProposeTxList(ctx, &taikoL1BlockMetadataInput, txListBytes, uint(txs.Len()), currentId); err != nil {
 		return fmt.Errorf("failed to propose transactions: %w", err)
 	}
 	fmt.Printf("%s took %v\n", "2", time.Since(start2))
@@ -379,13 +365,32 @@ func (p *Proposer) ProposeTxList(
 	meta *encoding.TaikoL1BlockMetadataInput,
 	txListBytes []byte,
 	txNum uint,
-	nonce *uint64,
+	// nonce *uint64,
 	currentId uint64,
 ) error {
 	// propose every 100 blocks
 	if currentId % 100 != 0 {
 		return nil
 	}
+
+	// get chain head and nonce
+	head, err := p.rpc.L1.BlockNumber(ctx)
+	if err != nil {
+		return err
+	}
+
+	nonce, err := p.rpc.L1.NonceAt(
+		ctx,
+		crypto.PubkeyToAddress(p.l1ProposerPrivKey.PublicKey),
+		new(big.Int).SetUint64(head),
+	)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Proposer account information", "chainHead", head, "nonce", nonce)
+
+	
 
 	if p.minBlockGasLimit != nil && meta.GasLimit < uint32(*p.minBlockGasLimit) {
 		meta.GasLimit = uint32(*p.minBlockGasLimit)
@@ -401,9 +406,7 @@ func (p *Proposer) ProposeTxList(
 	if err != nil {
 		return err
 	}
-	if nonce != nil {
-		opts.Nonce = new(big.Int).SetUint64(*nonce)
-	}
+	opts.Nonce = new(big.Int).SetUint64(nonce)
 	if p.proposeBlockTxGasLimit != nil {
 		opts.GasLimit = *p.proposeBlockTxGasLimit
 	}
